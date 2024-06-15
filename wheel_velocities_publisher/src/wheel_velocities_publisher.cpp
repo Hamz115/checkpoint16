@@ -10,8 +10,8 @@ class WheelVelocitiesPublisher : public rclcpp::Node
 public:
     WheelVelocitiesPublisher() : Node("wheel_velocities_publisher"), count_(0)
     {
-         RCLCPP_INFO(this->get_logger(), "Wheel Velocities Publisher Node has been initialized.");
-
+        RCLCPP_INFO(this->get_logger(), "Wheel Velocities Publisher Node has been initialized.");
+        
         publisher_ = this->create_publisher<std_msgs::msg::Float32MultiArray>("/wheel_speed", 10);
         timer_ = this->create_wall_timer(
             3s, std::bind(&WheelVelocitiesPublisher::publish_wheel_speeds, this));
@@ -26,28 +26,28 @@ private:
         switch (count_)
         {
         case 0:
-            RCLCPP_INFO(this->get_logger(), "Moving forward");
+            RCLCPP_INFO(this->get_logger(), "Move forward");
             wheel_speeds = {1.0, 1.0, 1.0, 1.0};
             break;
         case 1:
-            RCLCPP_INFO(this->get_logger(), "Moving backward");
+            RCLCPP_INFO(this->get_logger(), "Move backward");
             wheel_speeds = {-1.0, -1.0, -1.0, -1.0};
             break;
         case 2:
-            RCLCPP_INFO(this->get_logger(), "Moving left");
-            wheel_speeds = {-1.0, 1.0, 1.0, -1.0};
+            RCLCPP_INFO(this->get_logger(), "Move left");
+            wheel_speeds = {-1.0, 1.0, -1.0, 1.0};
             break;
         case 3:
-            RCLCPP_INFO(this->get_logger(), "Moving right");
-            wheel_speeds = {1.0, -1.0, -1.0, 1.0};
+            RCLCPP_INFO(this->get_logger(), "Move right");
+            wheel_speeds = {1.0, -1.0, 1.0, -1.0};
             break;
         case 4:
             RCLCPP_INFO(this->get_logger(), "Turn clockwise");
-            wheel_speeds = {1.0, -1.0, 1.0, -1.0};
+            wheel_speeds = {-1.0, 1.0, 1.0, -1.0};
             break;
         case 5:
             RCLCPP_INFO(this->get_logger(), "Turn counter-clockwise");
-            wheel_speeds = {-1.0, 1.0, -1.0, 1.0};
+            wheel_speeds = {1.0, -1.0, -1.0, 1.0};
             break;
         default:
             RCLCPP_INFO(this->get_logger(), "Stop");
