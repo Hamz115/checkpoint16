@@ -43,11 +43,11 @@ private:
             break;
         case 4:
             RCLCPP_INFO(this->get_logger(), "Turn clockwise");
-            wheel_speeds = {-1.0, 1.0, 1.0, -1.0};
+            wheel_speeds = {1.0, -1.0, -1.0, 1.0};
             break;
         case 5:
             RCLCPP_INFO(this->get_logger(), "Turn counter-clockwise");
-            wheel_speeds = {1.0, -1.0, -1.0, 1.0};
+            wheel_speeds = {-1.0, 1.0, 1.0, -1.0};
             break;
         default:
             RCLCPP_INFO(this->get_logger(), "Stop");
