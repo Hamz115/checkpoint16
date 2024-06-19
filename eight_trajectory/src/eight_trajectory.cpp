@@ -1,107 +1,136 @@
-#include <rclcpp/rclcpp.hpp>
-#include <std_msgs/msg/float32_multi_array.hpp>
-#include <nav_msgs/msg/odometry.hpp>
-#include <tf2/LinearMath/Quaternion.h>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
-#include <cmath>
+#include "nav_msgs/msg/detail/odometry__struct.hpp"
+#include "rclcpp/rclcpp.hpp"
+#include "rclcpp/utilities.hpp"
+#include "std_msgs/msg/float32_multi_array.hpp"
+#include "nav_msgs/msg/odometry.hpp"
 #include <Eigen/Dense>
+#include <string>
+#include <cmath>
+#include <iostream>
 
-class AbsoluteMotionNode : public rclcpp::Node {
+using Float32MultiArray = std_msgs::msg::Float32MultiArray;
+using Odometry = nav_msgs::msg::Odometry;
+using namespace std::chrono_literals;
+using namespace std::placeholders;
+
+class EightTrajectory : public rclcpp::Node
+{
 public:
-    AbsoluteMotionNode() : Node("absolute_motion"), phi_(0.0) {
-        pub_ = this->create_publisher<std_msgs::msg::Float32MultiArray>("wheel_speed", 10);
-        sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-            "/odom", 10, std::bind(&AbsoluteMotionNode::odomCallback, this, std::placeholders::_1));
-        RCLCPP_INFO(this->get_logger(), "Node initialized");
-        rclcpp::sleep_for(std::chrono::seconds(1));
-        executeMotions();
+    EightTrajectory() : Node("eight_trajectory") {
+        RCLCPP_INFO(this->get_logger(), "Initialized eight_trajectory node.");
+        CommandVels << 0.0, 0.0, 0.0;
+        CurrentOdom << 0.0, 0.0, 0.0;
+        publisher_ = this->create_publisher<Float32MultiArray>("/wheel_speed", 10);
+        subscription_ = this->create_subscription<Odometry>("/odometry/filtered", 10, std::bind(&EightTrajectory::topic_callback, this, _1));
+        update_waypoint();
     }
 
 private:
-    void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
-        tf2::Quaternion q(
-            msg->pose.pose.orientation.x,
-            msg->pose.pose.orientation.y,
-            msg->pose.pose.orientation.z,
-            msg->pose.pose.orientation.w);
-        tf2::Matrix3x3 m(q);
-        double roll, pitch;
-        m.getRPY(roll, pitch, phi_);
-        position_ = msg->pose.pose.position;
+    // General attributes
+    rclcpp::Publisher<Float32MultiArray>::SharedPtr publisher_;
+    rclcpp::Subscription<Odometry>::SharedPtr subscription_;
+    rclcpp::TimerBase::SharedPtr waypoint_timer_;
+    rclcpp::TimerBase::SharedPtr velocities_timer_;
 
-        // Debugging information to ensure the callback is being called
-        RCLCPP_INFO(this->get_logger(), "Odometry callback: x = %f, y = %f, z = %f, phi = %f", position_.x, position_.y, position_.z, phi_);
-    }
+    // Robot physical properties
+    float w = 0.134845;
+    float r = 0.05;
+    float l = 0.085;
 
-    std::tuple<double, double, double> velocity2twist(double dphi, double dx, double dy) {
-        // Using differential changes in phi, x, and y to compute the twist
-        Eigen::Vector3d v(dphi, dx, dy);
-        return std::make_tuple(v(0), v(1), v(2));
-    }
+    // Orietation and waypoints
+    int current_waypoint = 0;
 
-    std::vector<float> twist2wheels(double wz, double vx, double vy) {
-        double l = 0.500 / 2;
-        double r = 0.254 / 2;
-        double w = 0.548 / 2;
+    Eigen::Vector3d CommandVels;
+    Eigen::Vector3d CurrentOdom;
+    Eigen::Vector3d OdomTarget;
 
-        Eigen::MatrixXd H(4, 3);
-        H << -l-w, 1, -1,
-              l+w, 1,  1,
-              l+w, 1, -1,
-             -l-w, 1,  1;
-        H /= r;
-
-        Eigen::Vector3d twist(wz, vx, vy);
-        Eigen::VectorXd u = H * twist;
-        std::vector<float> result(u.data(), u.data() + u.size());
-        return result;
-    }
-
-    void executeMotions() {
-        std::vector<std::tuple<double, double, double>> waypoints = {
-            {0.0, 1, -1}, 
-            {0.0, 1, 1}, 
-            {0.0, 1, 1}, 
-            {1.5708, 1, -1}, 
-            {-3.1415, -1, -1}, 
-            {0.0, -1, 1}, 
-            {0.0, -1, 1}, 
-            {0.0, -1, -1}
-        };
-
-        for (const auto& waypoint : waypoints) {
-            double dphi, dx, dy;
-            std::tie(dphi, dx, dy) = waypoint;
-            RCLCPP_INFO(this->get_logger(), "Changing to new waypoint: dphi = %f, dx = %f, dy = %f", dphi, dx, dy);
-            RCLCPP_INFO(this->get_logger(), "Current position: x = %f, y = %f, z = %f", position_.x, position_.y, position_.z);
-            int iterations = 300;  // Number of iterations for each waypoint, adjust as needed
-
-            for (int i = 0; i < iterations; ++i) {
-                double wz, vx, vy;
-                std::tie(wz, vx, vy) = velocity2twist(dphi, dx, dy);
-                std::vector<float> u = twist2wheels(wz, vx, vy);
-
-                std_msgs::msg::Float32MultiArray msg;
-                msg.data = u;
-                pub_->publish(msg);
-                rclcpp::sleep_for(std::chrono::milliseconds(10));
-            }
+    void update_waypoint() {
+        RCLCPP_INFO(this->get_logger(), "Changing waypoint.");
+        current_waypoint += 1;
+        switch (current_waypoint) {
+            case 1:
+                CommandVels << 0.0, 1.0, -1.0;
+                break;
+            case 2:
+                CommandVels << 0.0, 1.0, 1.0;
+                break;
+            case 3:
+                CommandVels << 0.0, 1.0, 1.0;
+                break;
+            case 4:
+                CommandVels << 1.5708, 1.0, -1.0;
+                break;
+            case 5:
+                CommandVels << -3.1415, -1.0, -1.0;
+                break;
+            case 6:
+                CommandVels << 0.0, -1.0, 1.0;
+                break;
+            case 7:
+                CommandVels << 0.0, -1.0, 1.0;
+                break;
+            case 8:
+                CommandVels << 0.0, -1.0, -1.0;
+                break;
+            default:
+                rclcpp::shutdown();
         }
-
-        std_msgs::msg::Float32MultiArray stop_msg;
-        stop_msg.data = {0, 0, 0, 0};
-        pub_->publish(stop_msg);
+        OdomTarget = CurrentOdom + CommandVels;
     }
 
-    rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr pub_;
-    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub_;
-    double phi_;
-    geometry_msgs::msg::Point position_;
+    void compute_velocities() {
+        Eigen::MatrixXd RotationMatrix(3, 3);
+        Eigen::MatrixXd TwistVels(3, 1);
+        RotationMatrix << 1,    0,                        0,
+                          0,    std::cos(CurrentOdom[0]), std::sin(CurrentOdom[0]),
+                          0,   -std::sin(CurrentOdom[0]), std::cos(CurrentOdom[0]);
+        TwistVels = RotationMatrix * (OdomTarget - CurrentOdom);
+        float norm = float((OdomTarget - CurrentOdom).norm());
+        send_message(TwistVels, "Update velocities");
+        if (norm < 0.1) {update_waypoint();}
+    }
+
+    void send_message(Eigen::MatrixXd TwistVels, std::string Message) {
+        Eigen::MatrixXd HolonomicMatrix(4, 3);
+        HolonomicMatrix << -l-w, 1, -1,
+                            l+w, 1,  1,
+                            l+w, 1, -1,
+                           -l-w, 1,  1;
+
+        Eigen::MatrixXd WheelsVel(4, 1);
+        WheelsVel = (1/r) * HolonomicMatrix * TwistVels;
+
+        Float32MultiArray vel_message;
+        vel_message.data = {float(WheelsVel(0, 0)),
+                            float(WheelsVel(1, 0)), 
+                            float(WheelsVel(2, 0)), 
+                            float(WheelsVel(3, 0))};
+
+        RCLCPP_DEBUG(this->get_logger(), "%s.", Message.c_str());
+        publisher_->publish(vel_message);
+    }
+
+    void topic_callback(const Odometry::SharedPtr msg) {
+        RCLCPP_DEBUG(this->get_logger(), "Odom callback.");
+        float x = msg->pose.pose.position.x;
+        float y = msg->pose.pose.position.y;
+        float z = msg->pose.pose.orientation.z;
+        float w = msg->pose.pose.orientation.w;
+        float phi = 2 * std::atan2(z, w);
+        CurrentOdom << phi, x, y;
+        compute_velocities();
+    }
 };
 
-int main(int argc, char** argv) {
+int main(int argc, char * argv[])
+{
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<AbsoluteMotionNode>());
+    auto node = std::make_shared<EightTrajectory>();
+
+    rclcpp::executors::MultiThreadedExecutor executor;
+    executor.add_node(node);
+    executor.spin();
+
     rclcpp::shutdown();
     return 0;
 }
